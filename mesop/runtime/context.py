@@ -1,4 +1,5 @@
 import copy
+import logging
 import threading
 import types
 import urllib.parse as urlparse
@@ -22,6 +23,8 @@ from mesop.utils.async_utils import run_async_generator, run_coroutine
 T = TypeVar("T")
 
 Handler = Callable[[Any], Generator[None, None, None] | None]
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(kw_only=True)
@@ -109,13 +112,17 @@ class Context:
   def __init__(
     self,
     states: dict[type[Any], object],
+    *,
+    debug_mode: bool = False,
   ) -> None:
     self._node_tree_state = NodeTreeState()
     self._states: dict[type[Any], object] = states
+    self._debug_mode = debug_mode
     # Previous states is used for performing state diffs.
     self._previous_states: dict[type[Any], object] = copy.deepcopy(states)
     self._handlers: dict[str, Handler] = {}
     self._commands: list[pb.Command] = []
+    self._has_rendered: bool = False
     self._viewport_size: pb.ViewportSize | None = None
     self._theme_settings: pb.ThemeSettings | None = None
     self._js_modules: set[str] = set()
@@ -145,6 +152,12 @@ class Context:
 
   def clear_js_modules(self):
     self._js_modules = set()
+
+  def has_rendered(self) -> bool:
+    return self._has_rendered
+
+  def set_has_rendered(self, has_rendered: bool) -> None:
+    self._has_rendered = has_rendered
 
   def query_params(self) -> dict[str, list[str]]:
     return self._query_params
@@ -376,6 +389,9 @@ Did you forget to decorate your state class `{state.__name__}` with @stateclass?
       else:
         yield
     else:
-      raise MesopException(
+      error_message = (
         f"Unknown handler id: {event.handler_id} from event {event}"
       )
+      if self._debug_mode:
+        raise MesopDeveloperException(error_message)
+      logger.warning(error_message)
